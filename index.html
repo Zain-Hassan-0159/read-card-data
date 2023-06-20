@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+
+    <title>check in console</title>
+  </head>
+  <body>
+    <h1>check in console</h1>
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+
+    <script type="text/javascript" >
+        // A jQuery plugin to detect magnetic card swipes.  Requires a card reader that simulates a keyboard.
+        // This expects a card that encodes data on track 1, though it also reads tracks 2 and 3.  Most cards
+        // use track 1.  This won't recognize cards that don't use track 1, or work with a reader that
+        // doesn't read track 1.
+        //
+        // See http://en.wikipedia.org/wiki/Magnetic_card to understand the format of the data on a card.
+        //
+        // Uses pattern at https://github.com/umdjs/umd/blob/master/jqueryPlugin.js to declare
+        // the plugin so that it works with or without an AMD-compatible module loader, like RequireJS.
+        (function (factory) {
+            if (typeof define === 'function' && define.amd) {
+                // AMD. Register as an anonymous module.
+                define(['jquery'], factory);
+            } else {
+                // Browser globals
+                factory(jQuery);
+            }
+        }(function ($) {
+            //alert("in Function");
+            // State definitions:
+            var IDLE = 0; // Waiting for track 1 start character, %
+            var PENDING = 1; // Saw track 1 start character and waiting for B
+            var READING = 2; // Saw %B and capturing until a carriage return, or until the timer times out
+            var DISCARD = 3; // Eating all characters until a carriage return, or until the timer lapses
+
+            // Holds current state
+            var state = IDLE;
+
+            // Array holding scanned characters
+            var scanbuffer;
+            
+            // Interdigit timer
+            var timerHandle = 0;
+
+            // Keypress listener
+            var listener = function (e) {
+                switch (state) {
+                    case IDLE:
+                        // Look for '%'
+                        if (e.which == 37) {
+                            state = PENDING;
+                            scanbuffer = new Array();
+                            processCode(e.which);
+                            e.preventDefault();
+                            e.stopPropagation();
+                            startTimer();
+                        
+                        }
+                        
+                        break;
+
+                    case PENDING:
+                        // Look for format code character, A-Z. Almost always B for cards
+                        // used by the general public.
+                        //if (e.which >= 65 && e.which <= 90) {
+                            state = READING;
+                    
+                            // Leaving focus on a form element wreaks browser-dependent
+                            // havoc because of keyup and keydown events.  This is a
+                            // cross-browser way to prevent trouble.
+                            $("input").blur();
+
+                            processCode(e.which);
+                            e.preventDefault();
+                            e.stopPropagation();
+                            startTimer();
+                        /*}
+                        else {
+                            //clearTimer();
+                            //scanbuffer = null;
+                            state = IDLE;
+                        }*/
+                        break;
+
+                    case READING:
+                        //alert("Reading");
+                        processCode(e.which);
+                        startTimer();
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        // Carriage return indicates end of scan
+                        if (e.which == 13) {
+                            clearTimer();
+                            state = IDLE;
+                            processScan();
+                        }
+
+                        /*if (settings.firstLineOnly && e.which == 63) {
+                            // End of line 1.  Return early, and eat remaining characters.
+                            state = DISCARD;
+                            processScan();
+                        } */
+                            break;
+
+                    case DISCARD:
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.which == 13) {
+                            clearTimer();
+                            state = IDLE;
+                            return;
+                        }
+
+                        startTimer();
+                        break;
+                }
+            };
+
+            // Converts a scancode to a character and appends it to the buffer.
+            var processCode = function (code) {
+                //alert(scanbuffer);
+                scanbuffer.push(String.fromCharCode(code));
+                //console.log(code);
+            }
+
+            var startTimer = function () {
+                clearTimeout(timerHandle);
+                timerHandle = setTimeout(onTimeout, settings.interdigitTimeout);
+            };
+
+            var clearTimer = function () {
+                clearTimeout(timerHandle);
+                timerHandle = 0;
+            };
+
+            // Invoked when the timer lapses.
+            var onTimeout = function () {
+                if (state == READING) {
+                    processScan();
+                }
+                scanbuffer = null;
+                state = IDLE;
+            };
+
+
+            // Processes the scanned card
+            var processScan = function () {
+                //alert("Process scan");
+                var rawData = scanbuffer.join('');
+                
+                // Invoke client parser and callbacks
+                var parsedData = settings.parser.call(this, rawData);	//Defination is in Myswipe.php	
+            };
+
+            // Binds the event listener
+            var bindListener = function () {
+                $(document).bind("keypress.cardswipe", listener);
+            };
+
+            // Unbinds the event listener
+            var unbindListener = function () {
+                $(document).unbind(".cardswipe");
+            };	
+
+            // Defaults for settings
+            var defaults = {
+                enabled: true,
+                interdigitTimeout: 250,		
+                error: null,		
+                firstLineOnly: false
+            };
+
+            // Plugin actual settings
+            var settings;
+
+
+            // Callable plugin methods
+            var methods = { 
+                init: function (options) {
+                    settings = $.extend(defaults, options || {});
+
+                    if (settings.enabled)
+                        methods.enable();
+                },
+
+                disable: function (options) {
+                    unbindListener();
+                },
+
+                enable: function (options) {
+                    bindListener();
+                }
+            };
+
+
+            // The extension proper.  Dispatches methods using the usual jQuery pattern.
+            $.cardswipe = function (method) {
+                // Method calling logic
+                if (methods[method]) {
+                    return methods[method].apply(this, Array.prototype.slice.call(arguments, 1));
+                }
+                else if (typeof method === 'object' || !method) {
+                    return methods.init.apply(this, arguments);
+                }
+                else {
+                    $.error('Method ' + method + ' does not exist on jQuery.cardswipe');
+                }
+            }
+
+        }));
+    </script>
+
+    <script type="text/javascript">
+        // Parses raw scan into name and ID number
+
+        var companyCardParser = function(rawData) {
+
+            text = rawData;
+
+            // alert(text);
+
+            // cardData=rawData;
+
+            // return cardData;
+
+            var card_data = text;
+
+
+
+            var details1 = card_data.split("^");
+
+
+
+            var card_number = details1[0];
+
+            card_number = card_number.substring(2);
+
+
+
+            // Populate form fields using track 1 data
+
+            var CardType = null;
+
+            //Determine type of card
+
+            if (card_number.match(/^4[0-9]{12}(?:[0-9]{3})?$/))
+
+                CardType = 'Visa';
+
+            else if (card_number.match(/^5[1-5][0-9]{14}$/))
+
+                CardType = 'MasterCard';
+
+            else if (card_number.match(/^3[47][0-9]{13}$/))
+
+                CardType = 'Amex';
+
+            else if (card_number.match(/^6(?:011|5[0-9]{2})[0-9]{12}$/))
+
+                CardType = 'Discover';
+
+            else
+
+                CardType = 'Unknown';
+
+
+
+
+
+
+
+            var names = details1[1].split("/");
+
+            var first_name = names[1];
+
+
+
+            var last_name = names[0];
+
+
+
+
+
+            var details2 = details1[2].split(";");
+
+
+
+            //alert(details2);
+
+
+
+            details2 = details2[1].split("=");
+
+
+
+            var exp_date = details2[1];
+
+            var cvv = details2[0];
+
+            exp_date = exp_date.substring(0, exp_date.length - 1);
+
+            exp_date = exp_date.substring(0, 4);
+
+            exp_date = exp_date.substring(2, 4) + "/" + exp_date.substring(0, 2);
+
+            console.log(first_name);
+            console.log(last_name);
+            console.log(card_number);
+            console.log(exp_date);
+            console.log(CardType);
+            console.log(card_data);
+
+            // alert(exp_date);
+
+
+
+            document.getElementById("happy-giver-firstname").value = first_name;
+
+            document.getElementById("happy-giver-lastname").value = last_name;
+
+            document.getElementById("happy-giver-cardnumber").value = card_number;
+
+            document.getElementById("happy-giver-cardexp").value = exp_date;
+
+            document.getElementById("happy-giver-cardtype").value = CardType;
+
+
+
+            // document.getElementById("happy-giver-cvv").value = '123';
+
+            // var finaldata = card_number+"//"+first_name+"//"+last_name+"//"+exp_dateee;
+
+            //  alert(finaldata);
+
+
+
+            // var pattern=new RegExp("^\%B(\d+)\^(\w+)\/(\w+)\^\d+\?;\d+=(\d\d)(\d\d)\d+$");
+
+            // var match = pattern.exec(cardData);
+
+
+
+            // card_number = match[1];
+
+            // first_name = match[3];
+
+            // last_name = match[2];
+
+            // exp_date = match[5] + "/" + match[4];
+
+
+
+
+
+        };
+
+
+
+        // Initialize the plugin.
+
+        $.cardswipe({
+
+            parser: companyCardParser
+
+        });
+    </script>
+
+  </body>
+</html>
